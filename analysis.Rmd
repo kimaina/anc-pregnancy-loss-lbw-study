@@ -1,10 +1,8 @@
 ---
 title: "anc-pregnancy-loss-lbw"
-author: "Allan Kimaina"
+author: "Population Health"
 output:
-  Grmd::docx_document:
-    fig_caption: TRUE
-    force_captions: TRUE
+  Grmd::docx_document
 ---
 
 <style type="text/css">
@@ -14,29 +12,34 @@ body {
 </style>
 
 ```{r setup, include=FALSE}
+options(java.parameters = "-Xmx15g")
+
 knitr::opts_chunk$set(warning=FALSE,
                       message=FALSE,
                       echo=FALSE,
-                      dpi=96,
-                      fig.width=4, fig.height=4, # Default figure widths
-                      dev="png", #dev.args=list(type="cairo"), # The png device
+                      #dpi=96,
+                     # fig.width=7,# fig.height=4, # Default figure widths
+                     # dev="png", #dev.args=list(type="cairo"), # The png device
                       # Change to dev="postscript" if you want the EPS-files
                       # for submitting. Also remove the dev.args() as the postscript
                       # doesn't accept the type="cairo" argument.
                       error=FALSE)
  
 # Evaluate the figure caption after the plot
-knitr::opts_knit$set(eval.after='fig.cap')
+#knitr::opts_knit$set(eval.after='fig.cap')
  
 # Use the table counter that the htmlTable() provides
 options(table_counter = TRUE)
  
 # Use the figCapNo() with roman letters
-options(fig_caption_no_roman = TRUE)
+#options(fig_caption_no_roman = TRUE)
 #options(kableExtra.latex.load_packages = F)
 
 # Then install the Grmd-package by running below code:
 #devtools::install_github("gforge/Grmd")
+
+#devtools::install_github("kassambara/easyGgplot2")
+library(easyGgplot2)
 
 # function to install missing packages
 ipak <- function(pkg){
@@ -48,14 +51,15 @@ ipak <- function(pkg){
 
 #install.packages('package_name', dependencies=TRUE, repos='http://cran.rstudio.com/')
 
-packages =c( "dplyr",  "readxl","Hmisc","Gmisc", "magrittr", "flextable", "MASS", "tidyverse")
+packages =c( "dplyr",  "readxl","Hmisc","Gmisc", "magrittr", "flextable", "MASS", "tidyverse", "caret", "knitr", "kableExtra","xtable", "stargazer", "ggpubr")
 
 ipak(packages)
 
 
 select = dplyr::select; summarize = dplyr::summarize; rename = dplyr::rename; mutate = dplyr::mutate;
 
-#names(dataset)
+source("unbalanced_functions.R")
+
 ```
 
 
@@ -64,6 +68,7 @@ select = dplyr::select; summarize = dplyr::summarize; rename = dplyr::rename; mu
 
 describeMissing= function (x, html = TRUE, number_first = TRUE, percentage_sign = TRUE, 
     language = "en", useNA.digits = 1, ...) {
+    
     if (!any(is.na(x))) 
         return(invisible())
     df_arg_list <- list(x = is.na(x), html = html, number_first = number_first, 
@@ -107,9 +112,10 @@ desc_median <- function(x, ...) {
  }
 
  
- 
+ MainX<<-NULL
 # Creating a wrapper for getting descriptive statistics
 getTable1Stats <- function(x, y, cont_fx=desc_both, data=dataset, digits = 1,statistics = T,na.rm=na.rm.var){
+   MainX <<- append(MainX, c(x))
   data=data%>%drop_na(all_of(y))
   if(na.rm){
     data=data%>%drop_na(all_of(x))
@@ -128,11 +134,109 @@ getTable1Stats <- function(x, y, cont_fx=desc_both, data=dataset, digits = 1,sta
 relevelBy <- function(varList, data){
   for (factorName in names(varList)) {
     for(var in varList[[factorName]]){
+     # print(var)
       data[[var]] =relevel(factor(data[[var]]),factorName)
     }
   }
   return(data)
 }
+
+
+getMultipleTable1Stats <- function(x, y,y2,y3, cont_fx=desc_both, data=dataset, digits = 1,statistics = T,hrzl_prop = F,na.rm=na.rm.var){
+ # data=data%>%drop_na(all_of(y))
+  if(na.rm){
+    data=data%>%drop_na(all_of(x))
+  } 
+ yy1= getDescriptionStatsBy(x = data[[x]], 
+                        by = data[[y]],
+                        digits = digits,
+                        statistics = statistics,
+                        continuous_fn = cont_fx,
+                        hrzl_prop = hrzl_prop,
+                        total_col_show_perc = T,
+                        header_count = TRUE)
+ 
+ yy2= getDescriptionStatsBy(x = data[[x]], 
+                        by = data[[y2]],
+                        digits = digits,
+                        statistics = statistics,
+                        continuous_fn = cont_fx,
+                        hrzl_prop = hrzl_prop,
+                        total_col_show_perc = T,
+                        header_count = TRUE)
+ 
+ yy3= getDescriptionStatsBy(x = data[[x]], 
+                        by = data[[y3]],
+                        digits = digits,
+                        statistics = statistics,
+                        continuous_fn = cont_fx,
+                        hrzl_prop = hrzl_prop,
+                        total_col_show_perc = T,
+                        header_count = TRUE)
+  
+  
+  result <- tryCatch({
+    return(cbind(yy1,yy2,yy3))
+    
+    }, warning = function(war) {
+    
+      # warning handler picks up where error was generated
+      print(paste(x,"ERROR"))
+      print(paste("MY_WARNING:  ",war))
+     
+    
+    }, error = function(err) {
+    
+      # error handler picks up where error was generated
+      print(paste(x,"ERROR"))
+      print(paste("MY_ERROR:  ",err))
+      #return(f)
+    
+    }, finally = {
+    
+     # print(paste(x,"Done"))
+
+    }) # END tryCatch
+  
+}
+
+stargazer2 <- function(model, odd.ratio = F, ...) {
+  if(!("list" %in% class(model))) model <- list(model)
+    
+  if (odd.ratio) {
+    #exponentiate <- function(x) exp(x)
+    coefOR2 <- lapply(model, function(x) exp(coef(x)))
+    CIOR2 <- lapply(model, function(x) exp(confint(x)))
+    seOR2 <- lapply(model, function(x) exp(coef(x)) * summary(x)$coef[, 2])
+    p2 <- lapply(model, function(x) summary(x)$coefficients[, 4])
+    stargazer(model, coef = coefOR2, se = seOR2, p = p2,  ci.custom =CIOR2, ...)
+    
+  } else {
+    stargazer(model, ...)
+  }
+}
+
+generateInterpretation= function(outcome,topn,model.df){
+  
+  model.df%>%mutate(
+  interpretation=ifelse( term!="(Intercept)",paste("Fixing all else constant, a unit increase in ",tolower(variable_name),", changes the odds of ",outcome," by: ", estimate_or, " (",conf.low_or, "-",conf.high_or,") on average. In other words, the odds of ",outcome," changes by", 100 * (estimate_or - 1), "% due to each unit increase in ",tolower(variable_name)),paste("Not meaningful but can be roughly translated to the odds of ",outcome," which is ",estimate_or, " (",conf.low_or, "-",conf.high_or,") ,fixing all else constant")),
+  
+  interpretation=ifelse(categorical==T,paste("The odds of ",outcome," in ", tolower(variable_name), " is ", estimate_or, " (",conf.low_or, "-",conf.high_or,") times the odds of ", outcome," in the reference group, fixing all else constant." ),interpretation )
+)%>%select(variable_name,interpretation )%>%
+  kable( "html", booktabs = T, longtable = F,  digits=2,
+         caption = paste("Model Interpretation | ",capitalize(outcome)) ) %>%
+  kable_styling(bootstrap_options = c("striped","hold_position","condensed","responsive"))
+  
+
+}
+
+generateLogitPlot= function(outcome,topn,model.df){
+  ggplot(model.df%>%top_n(topn,p.value), aes(estimate, variable_name, color = variable_name )) +
+      geom_point() + geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) + geom_vline(xintercept = 1, color = "blue", lty = 2) +
+      ggtitle( sprintf( paste("Precision Comparison | ",capitalize(outcome)) ) )+  xlab("Log Odds Ratio") + ylab("Covariate")+
+      theme_economist()+ guides(fill=FALSE, color=FALSE)+theme(plot.title = element_text(size=14, face="bold"))
+}
+
 ```
 
 ## READ and CLEAN
@@ -189,11 +293,12 @@ dataset <-  readxl::read_excel("merged.xlsx")%>%
                      years_single=ifelse(cp_marital_status=="Single",sh_relationship_years,NA),
                      polygamous=ifelse(sh_relationship_type=="Polygamous","Yes","No"),
                      education_level=ifelse(se_education_level=="College"|se_education_level=="University","College/University",se_education_level),
+                     education_level_cat=ifelse(education_level=="Primary"|education_level=="None","Primary and below","Secondary and above"),
                      
                      # ANC
-                     trimester_1st_anc=ifelse(cp_anc_1st_anc<=12,"First (<= 12 weeks)",NA),
-                     trimester_1st_anc=ifelse( cp_anc_1st_anc>12&cp_anc_1st_anc<=24,"Second (13 – 24)",trimester_1st_anc),
-                     trimester_1st_anc=ifelse( cp_anc_1st_anc>24,"Third (>24 weeks)",trimester_1st_anc),
+                     trimester_1st_anc=ifelse(cp_anc_1st_anc<=12,"First",NA),
+                     trimester_1st_anc=ifelse( cp_anc_1st_anc>12&cp_anc_1st_anc<=24,"Second",trimester_1st_anc),
+                     trimester_1st_anc=ifelse( cp_anc_1st_anc>24,"Third",trimester_1st_anc),
                      
                      anc_hb_low=ifelse(gesthb<=12&ancp_hb_results<11.0,"Yes", NA),
                      anc_hb_low=ifelse(gesthb>24&ancp_hb_results<11.0,"Yes", anc_hb_low),
@@ -227,6 +332,7 @@ dataset <-  readxl::read_excel("merged.xlsx")%>%
                                       is.na(ancp_urinalysis_results) ~ NA_character_,
                                       TRUE ~ "Protein"),
                      
+                     
                     ancp_uti=ifelse(str_detect(ancp_urinalysis_cat,"Pus cells"),"Yes","No"),
                     
                     
@@ -235,6 +341,23 @@ dataset <-  readxl::read_excel("merged.xlsx")%>%
                      anemia_cat=ifelse( lab_hgb>10&lab_hgb<11,"Mild anemia (HB>10 & HB<11)",anemia_cat),
                     
                      anemic=ifelse(lab_hgb<11,"Yes", "No"),
+                    
+                    
+                    # household
+                    
+                    pollutant_q8_fuel_cook = case_when(
+                                  
+                                      q8_fuel_cook=="Kerosene"|q8_fuel_cook=="Propane gas" |q8_fuel_cook=="Charcoal"~ "Yes",
+                                      is.na(q8_fuel_cook) ~ NA_character_,
+                                      TRUE ~ "No"),
+                    
+                     porous_q2_kitchen_wall_material = case_when(
+                                  
+                                      q2_kitchen_wall_material=="Bamboo"|q2_kitchen_wall_material=="Thatch"~ "Yes",
+                                      is.na(q2_kitchen_wall_material) ~ NA_character_,
+                                      TRUE ~ "No"),
+                    q3_kitchen_adobe_floor=ifelse(str_detect(q3_kitchen_floor_material,"Uncovered"),"Yes","No"),
+                    q1_thatched_kitchen_roof=ifelse(str_detect(q1_kitchen_roof_material,"Thatch"),"Yes","No"),
                       
                      # cat
                      age_cat=ifelse(age<18,"<18",NA),
@@ -267,8 +390,9 @@ dataset <-  readxl::read_excel("merged.xlsx")%>%
                                       TRUE ~ "Employed"),
                      
                      
-                     
-                     
+                     # house holds
+                      q16_be_time_3rd_meal=as.numeric(ifelse(q16_be_time_3rd_meal=="7:00PM", NA, q16_be_time_3rd_meal)),
+                      q3_kitchen_floor_material=ifelse(q3_kitchen_floor_material=="0", NA, q3_kitchen_floor_material),
                     
                        # FIX 
                      #inpouch=relevel( factor(ifelse(is.na(inpouch), "Missing",inpouch)), "Negative" ),
@@ -276,6 +400,7 @@ dataset <-  readxl::read_excel("merged.xlsx")%>%
                      years_single=ifelse(code_no=="LB325",-0.1,years_single),
                      pregnancy_duration_weeks=ifelse(code_no=="LB325",-0.1,pregnancy_duration_weeks),
                      birth_weight_grams=ifelse(code_no=="LB325",-0.1,birth_weight_grams),
+                    
   
                      
                      preg_outcomexx=preg_outcome
@@ -318,41 +443,39 @@ dataset <-  readxl::read_excel("merged.xlsx")%>%
 varList= list(
 "Yes"=c('preg_loss','low_birth_weight','polygamous','anc_hb_low','hiv_haart_regimen','lab_hb_low', 'sickle_cell', "preterm", "still_birth_death", "ferritin_less15",
         "any_prev_preg_loss","any_prev_abortions","any_prev_deaths","any_prev_still_births","any_prev_miscarriage","any_prev_alive_births","any_prev_lbw",
-        "any_prev_preterm", "ancp_uti", "anemic"
+        "any_prev_preterm", "ancp_uti", "anemic", "is_ipt_dose_given","is_taken_iron_supps","is_deworming_done","is_used_contraceptives","pollutant_q8_fuel_cook",
+        "porous_q2_kitchen_wall_material","q3_kitchen_adobe_floor","q1_thatched_kitchen_roof"
         ),
 "Positive"=c('ancp_rhesus_results','ancp_vdrl_rpr_results','ancp_hiv_results','inpouch','lab_rdt','chlamydia','gonorrhea',"vaginosis_cat")
 )
 
 dataset= relevelBy(varList,dataset) 
 #sapply(dataset, class)
-tetet=dataset%>%select(pp1_outcome,pp2_outcome,pp3_outcome,pp4_outcome,pp5_outcome,pp6_outcome,any_prev_preg_loss,any_prev_abortions,
-                       any_prev_deaths,any_prev_still_births,any_prev_miscarriage,any_prev_alive_births
-                       )
+
 ```
 
 
 # Univariate Analysis
 
 
-
-
 ## Table 1: Demographics and socio-economic characteristics
-```{r warning=FALSE}
-na.rm.var=F
+```{r fig.align='center',warning=FALSE}
+na.rm.var=F;stats=F
+
 # Getting descriptive statistics 
-mergeDesc("Age (years)" = getTable1Stats("age","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Marital Status" = getTable1Stats("cp_marital_status","outcome",desc_both,statistics=T,na.rm=na.rm.var),
-          "Years of marriage" =getTable1Stats("years_marriage","outcome",desc_median,statistics=T,na.rm=na.rm.var),  # TODO delete missing from excel
-          "Years of relationship (single)" = getTable1Stats("years_single","outcome",desc_median,statistics=T,na.rm=na.rm.var), # TODO delete missing from excel
-          "Polygamous marriage" =getTable1Stats("polygamous","outcome",desc_median,statistics=T,na.rm=na.rm.var),
+mergeDesc("Age (years)" = getTable1Stats("age","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Marital Status" = getTable1Stats("cp_marital_status","outcome",desc_both,statistics=stats,na.rm=na.rm.var),
+          "Years of marriage" =getTable1Stats("years_marriage","outcome",desc_median,statistics=stats,na.rm=na.rm.var),  
+          "Years of relationship (single)" = getTable1Stats("years_single","outcome",desc_median,statistics=stats,na.rm=na.rm.var), 
+          "Polygamous marriage" =getTable1Stats("polygamous","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
           
-          "Occupation (%)" = getTable1Stats("se_occupation_cat","outcome",desc_both,statistics=T,na.rm=na.rm.var),
-          "Spouse Occupation (%)" = getTable1Stats("se_spouse_occupation_cat","outcome",desc_both,statistics=T,na.rm=na.rm.var),
+          "Occupation (%)" = getTable1Stats("se_occupation_cat","outcome",desc_both,statistics=stats,na.rm=na.rm.var),
+          "Spouse Occupation (%)" = getTable1Stats("se_spouse_occupation_cat","outcome",desc_both,statistics=stats,na.rm=na.rm.var),
           
-          "Education (%)" =getTable1Stats("education_level","outcome",desc_median,statistics=T,na.rm=na.rm.var)
+          "Education (%)" =getTable1Stats("education_level","outcome",desc_median,statistics=stats,na.rm=na.rm.var)
           )%>%
    htmlTable( caption  = "<b> Demographics and socio-economic characteristics </b>",useViewer=T,ctable = TRUE, align = 'lcccc',
-              n.cgroup = c(1, 3,1 ), cgroup = c('', 'General Study Outcomes', '') ,tfoot="<sup>&Dagger;</sup>"
+              n.cgroup = c(1,2,1 ), cgroup = c('', 'General Study Outcomes', '') ,tfoot="<sup>&Dagger;</sup>"
               )%>% htmlTable::addHtmlTableStyle(col.rgroup = c("#FFF", "#EEF")) 
 
 
@@ -362,33 +485,33 @@ mergeDesc("Age (years)" = getTable1Stats("age","outcome",desc_median,statistics=
 
 ## Table 2: Clinical and ANC profile
 
-```{r warning=FALSE}
-na.rm.var=T
+```{r fig.align='center',warning=FALSE}
+na.rm.var=F;stats=F
 
 # Getting descriptive statistics 
-mergeDesc("Weight (Kg)" = getTable1Stats("cp_weight","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Height (cm)" = getTable1Stats("cp_height","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "BMI (Kg/m2)" =getTable1Stats("cp_bmi","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Systolic BP (mm Hg)" = getTable1Stats("cp_sbp","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Diastolic BP (mm Hg) " =getTable1Stats("cp_dbp","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Gestation at enrollment (Weeks)" = getTable1Stats("cp_gbd","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Gravidity" =getTable1Stats("gravida","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Number of ANC visits (%)" = getTable1Stats("cp_anc_attendance","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Gestation at first ANC attendance (Weeks)" = getTable1Stats("cp_anc_1st_anc","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Trimester at first ANC attendance (%)" = getTable1Stats("trimester_1st_anc","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Hemoglobin (g/dL) (ANC)" = getTable1Stats("ancp_hb_results","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "HB <11.0 at 1st & 3rd trimesters & <10.5 at 2nd trimester" = getTable1Stats("anc_hb_low","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "GBD at HB measurement (Weeks)" =getTable1Stats("gesthb","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Blood Group (%)" = getTable1Stats("ancp_bloodgroup_results","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Rhesus" = getTable1Stats("ancp_rhesus_results","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "VDRL" = getTable1Stats("ancp_vdrl_rpr_results","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "HIV" = getTable1Stats("ancp_hiv_results","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "On HAART " = getTable1Stats("hiv_haart_regimen","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Urinalysis" = getTable1Stats("ancp_urinalysis_cat","outcome",desc_median,statistics=T,na.rm=na.rm.var)
+mergeDesc("Weight (Kg)" = getTable1Stats("cp_weight","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Height (cm)" = getTable1Stats("cp_height","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "BMI (Kg/m2)" =getTable1Stats("cp_bmi","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Systolic BP (mm Hg)" = getTable1Stats("cp_sbp","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Diastolic BP (mm Hg) " =getTable1Stats("cp_dbp","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gestation at enrollment (Weeks)" = getTable1Stats("cp_gbd","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gravidity" =getTable1Stats("gravida","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Number of ANC visits (%)" = getTable1Stats("cp_anc_attendance","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gestation at first ANC attendance (Weeks)" = getTable1Stats("cp_anc_1st_anc","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Trimester at first ANC attendance (%)" = getTable1Stats("trimester_1st_anc","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Hemoglobin (g/dL) (ANC)" = getTable1Stats("ancp_hb_results","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "HB <11.0 at 1st & 3rd trimesters & <10.5 at 2nd trimester" = getTable1Stats("anc_hb_low","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "GBD at HB measurement (Weeks)" =getTable1Stats("gesthb","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Blood Group (%)" = getTable1Stats("ancp_bloodgroup_results","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Rhesus" = getTable1Stats("ancp_rhesus_results","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "VDRL" = getTable1Stats("ancp_vdrl_rpr_results","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "HIV" = getTable1Stats("ancp_hiv_results","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "On HAART " = getTable1Stats("hiv_haart_regimen","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Urinalysis" = getTable1Stats("ancp_urinalysis_cat","outcome",desc_median,statistics=stats,na.rm=na.rm.var)
           
           )%>%
    htmlTable( caption  = "<b> Clinical and ANC profile</b>",useViewer=T,ctable = TRUE, align = 'lcccc',
-              n.cgroup = c(1, 3,1 ), cgroup = c('', 'General Study Outcomes', '') ,tfoot="<sup>&Dagger;</sup>"
+              n.cgroup = c(1, 2 ), cgroup = c('', 'General Study Outcomes', '') ,tfoot="<sup>&Dagger;</sup>"
               )%>% htmlTable::addHtmlTableStyle(col.rgroup = c("#FFF", "#EEF")) 
 
 
@@ -398,23 +521,23 @@ mergeDesc("Weight (Kg)" = getTable1Stats("cp_weight","outcome",desc_median,stati
 
 ## Table 3: Previous pregnancy characteristics
 
-```{r warning=FALSE}
-na.rm.var=F
+```{r fig.align='center',warning=FALSE}
+na.rm.var=F;stats=F
 
 # Getting descriptive statistics 
 mergeDesc(
   
-          "Previous preterms" = getTable1Stats("any_prev_preterm","outcome",desc_both,statistics=T,na.rm=na.rm.var),
-          "Previous low birth weight [n, (%)]" = getTable1Stats("any_prev_lbw","outcome",desc_both,statistics=T,na.rm=na.rm.var),
-          "Previous miscarriages [n, (%)]" = getTable1Stats("any_prev_miscarriage","outcome",desc_both,statistics=T,na.rm=na.rm.var),
-          "Previous still births [n, (%)]" = getTable1Stats("any_prev_still_births","outcome",desc_both,statistics=T,na.rm=na.rm.var),
-          "Previous deaths [n, (%)]" = getTable1Stats("any_prev_deaths","outcome",desc_both,statistics=T,na.rm=na.rm.var),
-          "Previous abortions [n, (%)]" = getTable1Stats("any_prev_abortions","outcome",desc_both,statistics=T,na.rm=na.rm.var), 
-          "Previous pregnancy loss [n, (%)]" = getTable1Stats("any_prev_preg_loss","outcome",desc_both,statistics=T,na.rm=na.rm.var)
+          "Previous preterms" = getTable1Stats("any_prev_preterm","outcome",desc_both,statistics=stats,na.rm=na.rm.var),
+          "Previous low birth weight [n, (%)]" = getTable1Stats("any_prev_lbw","outcome",desc_both,statistics=stats,na.rm=na.rm.var),
+          "Previous miscarriages [n, (%)]" = getTable1Stats("any_prev_miscarriage","outcome",desc_both,statistics=stats,na.rm=na.rm.var),
+          "Previous still births [n, (%)]" = getTable1Stats("any_prev_still_births","outcome",desc_both,statistics=stats,na.rm=na.rm.var),
+          "Previous deaths [n, (%)]" = getTable1Stats("any_prev_deaths","outcome",desc_both,statistics=stats,na.rm=na.rm.var),
+          "Previous abortions [n, (%)]" = getTable1Stats("any_prev_abortions","outcome",desc_both,statistics=stats,na.rm=na.rm.var), 
+          "Previous pregnancy loss [n, (%)]" = getTable1Stats("any_prev_preg_loss","outcome",desc_both,statistics=stats,na.rm=na.rm.var)
          
           )%>%
    htmlTable( caption  = "<b> Previous pregnancy characteristics</b>",useViewer=T,ctable = TRUE, align = 'lcccc',
-              n.cgroup = c(1, 3,1 ), cgroup = c('', 'General Study Outcomes', '') ,tfoot="<sup>&Dagger;</sup>"
+              n.cgroup = c(1, 2 ), cgroup = c('', 'General Study Outcomes', '') ,tfoot="<sup>&Dagger;</sup>"
               )%>% htmlTable::addHtmlTableStyle(col.rgroup = c("#FFF", "#EEF")) 
 
 
@@ -423,26 +546,26 @@ mergeDesc(
 ```
 
 ## Table 4: Laboratory results
-```{r warning=FALSE}
-na.rm.var=F
+```{r fig.align='center',warning=FALSE}
+na.rm.var=F;stats=F
 
 # Getting descriptive statistics 
-mergeDesc("Ferritin (µg/L)" = getTable1Stats("ferritin","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Ferritin (µg/L) (%)" = getTable1Stats("ferritin_cat","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Hemoglobin (g/dL) (Lab)" = getTable1Stats("lab_hgb","outcome",desc_median,statistics=T,na.rm=na.rm.var),  
-          "HB <11.0 at 1st & 3rd trimesters & <10.5 at 2nd trimester (%)" =getTable1Stats("lab_hb_low","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "HCT" = getTable1Stats("lab_hct","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "White Blood cell count" =getTable1Stats("lab_wbc_count","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "MCV " = getTable1Stats("lab_mcv","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Sickle cell carriers" =getTable1Stats("sickle_cell","outcome",desc_median,statistics=T,na.rm=na.rm.var), # TODO
-          "Trichonomiasis " =getTable1Stats("inpouch","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Vaginosis" =getTable1Stats("vaginosis","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Malaria " =getTable1Stats("lab_rdt","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Chlamydia " =getTable1Stats("chlamydia","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Gonorrhea " =getTable1Stats("gonorrhea","outcome",desc_median,statistics=T,na.rm=na.rm.var)
+mergeDesc("Ferritin (µg/L)" = getTable1Stats("ferritin","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Ferritin (µg/L) (%)" = getTable1Stats("ferritin_cat","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Hemoglobin (g/dL) (Lab)" = getTable1Stats("lab_hgb","outcome",desc_median,statistics=stats,na.rm=na.rm.var),  
+          "HB <11.0 at 1st & 3rd trimesters & <10.5 at 2nd trimester (%)" =getTable1Stats("lab_hb_low","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "HCT" = getTable1Stats("lab_hct","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "White Blood cell count" =getTable1Stats("lab_wbc_count","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "MCV " = getTable1Stats("lab_mcv","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Sickle cell carriers" =getTable1Stats("sickle_cell","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Trichonomiasis " =getTable1Stats("inpouch","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Vaginosis" =getTable1Stats("vaginosis","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Malaria " =getTable1Stats("lab_rdt","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Chlamydia " =getTable1Stats("chlamydia","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gonorrhea " =getTable1Stats("gonorrhea","outcome",desc_median,statistics=stats,na.rm=na.rm.var)
           )%>%
    htmlTable( caption  = "<b>  Laboratory results </b>",useViewer=T,ctable = TRUE, align = 'lcccc',
-              n.cgroup = c(1, 3,1 ), cgroup = c('', 'General Study Outcomes', ''),tfoot="<sup>&Dagger;</sup>"
+              n.cgroup = c(1, 2 ), cgroup = c('', 'General Study Outcomes', ''),tfoot="<sup>&Dagger;</sup>"
               )%>% htmlTable::addHtmlTableStyle(col.rgroup = c("#FFF", "#EEF")) 
 
 
@@ -453,19 +576,19 @@ mergeDesc("Ferritin (µg/L)" = getTable1Stats("ferritin","outcome",desc_median,s
 
 ## Table 5: Pregnancy outcomes 
 ```{r warning=FALSE}
-na.rm.var=F
+na.rm.var=F;stats=F
 # Getting descriptive statistics 
-mergeDesc("Pregnancy duration (weeks)" = getTable1Stats("pregnancy_duration_weeks","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Pregnancy duration (%)" = getTable1Stats("preg_duration_cat","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Still Birth or death" = getTable1Stats("still_birth_death","outcome",desc_median,statistics=T,na.rm=na.rm.var),  
-          "Delivery mode (%)" =getTable1Stats("delivery_mode","outcome",desc_median,statistics=T,na.rm=na.rm.var), 
-          "Birth weight (grams)" = getTable1Stats("birth_weight_grams","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Birth weight (%)" =getTable1Stats("birth_weight_cat","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Delivery place (%) " = getTable1Stats("delivery_place","outcome",desc_median,statistics=T,na.rm=na.rm.var),
-          "Delivery by (%)" =getTable1Stats("delivery_conducted_by","outcome",desc_median,statistics=T,na.rm=na.rm.var)
+mergeDesc("Pregnancy duration (weeks)" = getTable1Stats("pregnancy_duration_weeks","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Pregnancy duration (%)" = getTable1Stats("preg_duration_cat","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Still Birth or death" = getTable1Stats("still_birth_death","outcome",desc_median,statistics=stats,na.rm=na.rm.var),  
+          "Delivery mode (%)" =getTable1Stats("delivery_mode","outcome",desc_median,statistics=stats,na.rm=na.rm.var), 
+          "Birth weight (grams)" = getTable1Stats("birth_weight_grams","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Birth weight (%)" =getTable1Stats("birth_weight_cat","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Delivery place (%) " = getTable1Stats("delivery_place","outcome",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Delivery by (%)" =getTable1Stats("delivery_conducted_by","outcome",desc_median,statistics=stats,na.rm=na.rm.var)
           )%>%
    htmlTable( caption  = "<b> Pregnancy outcomes </b>",useViewer=T,ctable = TRUE, align = 'lcccc',
-              n.cgroup = c(1, 3,1 ), cgroup = c('', 'General Study Outcomes', ''), tfoot="<sup>&Dagger;</sup>"
+              n.cgroup = c(1, 2 ), cgroup = c('', 'General Study Outcomes', ''), tfoot="<sup>&Dagger;</sup>"
               )%>% htmlTable::addHtmlTableStyle(col.rgroup = c("#FFF", "#EEF")) 
 
 
@@ -474,27 +597,34 @@ mergeDesc("Pregnancy duration (weeks)" = getTable1Stats("pregnancy_duration_week
 
 
 ## Table 6: Associations with pregnancy loss 
-```{r warning=FALSE}
-na.rm.var=T
-mergeDesc("Maternal age (%)" = getTable1Stats("age_cat","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "BMI" = getTable1Stats("cp_bmi_cat","preg_loss",desc_median,statistics=T,na.rm=na.rm.var), 
-          "Previous abortion " = getTable1Stats("any_prev_preg_loss","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Gravida (%)" =getTable1Stats("gravida_cat","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Iron deficiency ( Ferritin <= 15 )" = getTable1Stats("ferritin_less15","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Anemic " = getTable1Stats("anemic","preg_loss",desc_median,statistics=T,na.rm=na.rm.var), 
-          "Sickle cell disease" =getTable1Stats("sickle_cell","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Trichonomiasis" =getTable1Stats("inpouch","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Vaginosis" =getTable1Stats("vaginosis_cat","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Chlamydia " =getTable1Stats("chlamydia","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Gonorrhea " =getTable1Stats("gonorrhea","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Malaria " =getTable1Stats("lab_rdt","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
+```{r fig.align='center',warning=FALSE}
+na.rm.var=T;stats=T
+mergeDesc(
+          "Maternal age (Median (IQR))" = getTable1Stats("age","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),        
+          "Maternal age (%)" = getTable1Stats("age_cat","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Years of marriage (Median (IQR))" =getTable1Stats("years_marriage","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "BMI (Median (IQR))" = getTable1Stats("cp_bmi","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "BMI (%)" = getTable1Stats("cp_bmi_cat","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var), 
+          "Previous low birth weight [n, (%)]" = getTable1Stats("any_prev_lbw","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Previous abortion " = getTable1Stats("any_prev_abortions","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Previous pregnancy loss [n, (%)]" = getTable1Stats("any_prev_preg_loss","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gestation at enrollment (Weeks)" = getTable1Stats("cp_gbd","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gravida (%)" =getTable1Stats("gravida_cat","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Iron deficiency ( Ferritin <= 15 )" = getTable1Stats("ferritin_less15","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Anemic " = getTable1Stats("anemic","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var), 
+          "Sickle cell disease" =getTable1Stats("sickle_cell","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Trichonomiasis" =getTable1Stats("inpouch","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Vaginosis" =getTable1Stats("vaginosis_cat","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Chlamydia " =getTable1Stats("chlamydia","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gonorrhea " =getTable1Stats("gonorrhea","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Malaria " =getTable1Stats("lab_rdt","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
 
-          "HIV " =getTable1Stats("ancp_hiv_results","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "#TODO#Any acute infection " =getTable1Stats("gonorrhea","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),#TODO
-          "Urinary tract infection" =getTable1Stats("ancp_uti","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
+          "HIV " =getTable1Stats("ancp_hiv_results","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+         # "#TODO#Any acute infection " =getTable1Stats("gonorrhea","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),#TODO
+          "Urinary tract infection" =getTable1Stats("ancp_uti","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
 
-          "Syphilis screening" =getTable1Stats("ancp_vdrl_rpr_results","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),#TODO#
-          "Anemia" =getTable1Stats("anemia_cat","preg_loss",desc_median,statistics=T,na.rm=na.rm.var)
+          "Syphilis screening" =getTable1Stats("ancp_vdrl_rpr_results","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Anemia" =getTable1Stats("anemia_cat","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var)
           )%>%
    htmlTable( caption  = "<b>  Associations with pregnancy loss </b>",useViewer=T,ctable = TRUE, align = 'lcccc',
               n.cgroup = c(1, 2,1 ), cgroup = c('', 'Pregnancy Loss', '') ,tfoot="<sup>&Dagger;</sup>"
@@ -507,30 +637,36 @@ mergeDesc("Maternal age (%)" = getTable1Stats("age_cat","preg_loss",desc_median,
 
 
 ## Table 7: Associations with low birth weight 
-```{r warning=FALSE}
+```{r fig.align='center',warning=FALSE}
 
 tests=dataset%>%filter(ancp_vdrl_rpr_results=="Positive")
-na.rm.var=T
+na.rm.var=T;stats=T
 # Getting descriptive statistics  
-mergeDesc("Maternal age (%)" = getTable1Stats("age_cat","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "BMI" = getTable1Stats("cp_bmi_cat","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var), 
-          "Previous abortion " = getTable1Stats("any_prev_preg_loss","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "Gravida (%)" =getTable1Stats("gravida_cat","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "Iron deficiency ( Ferritin <= 15 )" = getTable1Stats("ferritin_less15","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "Anemic " = getTable1Stats("anemic","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var), 
-          "Sickle cell disease" =getTable1Stats("sickle_cell","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "Trichonomiasis" =getTable1Stats("inpouch","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "Vaginosis" =getTable1Stats("vaginosis_cat","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "Chlamydia " =getTable1Stats("chlamydia","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "Gonorrhea " =getTable1Stats("gonorrhea","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "Malaria " =getTable1Stats("lab_rdt","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
+mergeDesc(#"Maternal age (Median (IQR))" = getTable1Stats("age","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),        
+          "Maternal age (%)" = getTable1Stats("age_cat","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Years of marriage (Median (IQR))" =getTable1Stats("years_marriage","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          #"BMI (Median (IQR))" = getTable1Stats("cp_bmi","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "BMI (%)" = getTable1Stats("cp_bmi_cat","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Previous low birth weight [n, (%)]" = getTable1Stats("any_prev_lbw","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Previous deaths [n, (%)]" = getTable1Stats("any_prev_deaths","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Previous pregnancy loss [n, (%)]" = getTable1Stats("any_prev_preg_loss","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gestation at enrollment (Weeks)" = getTable1Stats("cp_gbd","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gravida (%)" =getTable1Stats("gravida_cat","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Iron deficiency ( Ferritin <= 15 )" = getTable1Stats("ferritin_less15","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Anemic " = getTable1Stats("anemic","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var), 
+          "Sickle cell disease" =getTable1Stats("sickle_cell","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Trichonomiasis" =getTable1Stats("inpouch","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Vaginosis" =getTable1Stats("vaginosis_cat","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Chlamydia " =getTable1Stats("chlamydia","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Gonorrhea " =getTable1Stats("gonorrhea","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Malaria " =getTable1Stats("lab_rdt","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
 
-          "HIV " =getTable1Stats("ancp_hiv_results","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
-          "#TODO#Any acute infection " =getTable1Stats("gonorrhea","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),#TODO
-          "Urinary tract infection" =getTable1Stats("ancp_uti","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),
+          "HIV " =getTable1Stats("ancp_hiv_results","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          #"#TODO#Any acute infection " =getTable1Stats("gonorrhea","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),#TODO
+          "Urinary tract infection" =getTable1Stats("ancp_uti","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
 
-          "Syphilis screening" =getTable1Stats("ancp_vdrl_rpr_results","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var),#TODO#
-          "Anemia" =getTable1Stats("anemia_cat","low_birth_weight",desc_median,statistics=T,na.rm=na.rm.var)
+          "Syphilis screening" =getTable1Stats("ancp_vdrl_rpr_results","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Anemia" =getTable1Stats("anemia_cat","low_birth_weight",desc_median,statistics=stats,na.rm=na.rm.var)
           )%>%
    htmlTable( caption  = "<b> Associations with low birth weight   </b>",useViewer=T,ctable = TRUE, align = 'lcccc',
               n.cgroup = c(1, 2,1 ), cgroup = c('', 'Low Birth Weight', '') ,tfoot="<sup>&Dagger;</sup>"
@@ -540,61 +676,40 @@ mergeDesc("Maternal age (%)" = getTable1Stats("age_cat","low_birth_weight",desc_
 
 ```
 
+## Table 9: Association with household pollutants
 
-## Table 8: Correlates of birth outcomes
-```{r warning=FALSE}
 
-getMultipleTable1Stats <- function(x, y,y2,y3, cont_fx=desc_both, data=dataset, digits = 1,statistics = T,na.rm=na.rm.var){
- # data=data%>%drop_na(all_of(y))
-  if(na.rm){
-    data=data%>%drop_na(all_of(x))
-  } 
- yy1= getDescriptionStatsBy(x = data[[x]], 
-                        by = data[[y]],
-                        digits = digits,
-                        statistics = statistics,
-                        continuous_fn = cont_fx,
-                        hrzl_prop = T,
-                        total_col_show_perc = T,
-                        header_count = TRUE)
- 
- yy2= getDescriptionStatsBy(x = data[[x]], 
-                        by = data[[y2]],
-                        digits = digits,
-                        statistics = statistics,
-                        continuous_fn = cont_fx,
-                        hrzl_prop = T,
-                        total_col_show_perc = T,
-                        header_count = TRUE)
- 
- yy3= getDescriptionStatsBy(x = data[[x]], 
-                        by = data[[y3]],
-                        digits = digits,
-                        statistics = statistics,
-                        continuous_fn = cont_fx,
-                        hrzl_prop = T,
-                        total_col_show_perc = T,
-                        header_count = TRUE)
-  
-  cbind(yy1,yy2,yy3)
-  
-}
+```{r fig.align='center',warning=FALSE}
 
 # Getting descriptive statistics 
-na.rm.var=F
+na.rm.var=F;stats=T
 mergeDesc(
-          "Marital status" = getMultipleTable1Stats("cp_marital_status","low_birth_weight","preterm","preg_loss",desc_both,statistics=T,na.rm=na.rm.var),
-          "BMI" = getMultipleTable1Stats("cp_bmi_cat","low_birth_weight","preterm","preg_loss",desc_both,statistics=T,na.rm=na.rm.var), 
-          "Booking trimester" = getMultipleTable1Stats("trimester_1st_anc","preterm","low_birth_weight","preg_loss",desc_both,statistics=T,na.rm=na.rm.var),  
-          "Education level" =getMultipleTable1Stats("education_level","low_birth_weight","preterm","preg_loss",desc_median,statistics=T,na.rm=na.rm.var), 
-          "Occupation" = getMultipleTable1Stats("se_occupation_cat","low_birth_weight","preterm","preg_loss",desc_both,statistics=T,na.rm=na.rm.var),
-          "IPT" = getMultipleTable1Stats("lab_mcv","low_birth_weight","preterm","preg_loss",desc_both,statistics=T,na.rm=na.rm.var),
-          "Iron Supplementation" =getMultipleTable1Stats("sickle_cell","low_birth_weight","preterm","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Deworming" =getMultipleTable1Stats("inpouch","low_birth_weight","preterm","preg_loss",desc_median,statistics=T,na.rm=na.rm.var),
-          "Contraceptive use" =getMultipleTable1Stats("vaginosis","low_birth_weight","preterm","preg_loss",desc_median,statistics=T,na.rm=na.rm.var)
+  
+          "Thatched kitchen roof" = getMultipleTable1Stats("q1_thatched_kitchen_roof","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          #"kitchen roofing material" = getMultipleTable1Stats("q1_kitchen_roof_material","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "porous kitchen wall material"= getMultipleTable1Stats("porous_q2_kitchen_wall_material","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          #"kitchen walling material" = getMultipleTable1Stats("q2_kitchen_wall_material","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "kitchen adobe floor" = getMultipleTable1Stats("q3_kitchen_adobe_floor","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "kitchen permanent entryways" = getMultipleTable1Stats("q5_kitchen_permanent_entryways","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "permanent open windows (n)" = getMultipleTable1Stats("q7_no_permanent_windows_open","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          #"fuel used in cooking" = getMultipleTable1Stats("q8_fuel_cook","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "pollutant fuel"= getMultipleTable1Stats("pollutant_q8_fuel_cook","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "months cook house" = getMultipleTable1Stats("q10_months_cook_house","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "age started cooking (yrs)" = getMultipleTable1Stats("q12_be_ageyrs_start_cook","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          
+          "years spent cooking" = getMultipleTable1Stats("q14_be_years_spent_cooking","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          
+          #"currently smoking" = getMultipleTable1Stats("q18_currently_smoke","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          
+          "age started smoking" = getMultipleTable1Stats("q20_ageyrs_startsmoking","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          
+          "daily cigarettes (n)" = getMultipleTable1Stats("q22_no_cig_smoke","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          
+           "anyone smoking in house" = getMultipleTable1Stats("q24_anyone_smoke_house","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var)
+          
           ) %>%
-   htmlTable( caption  = "<b> Correlates of birth outcomes  </b>",useViewer=T,ctable = TRUE, align = 'lcccc',
-              n.cgroup = c(1,2,1,1,2,1,1,2,1 ), cgroup = c( '','Low Birth Weight', '','','Preterm', '','','Pregnancy Loss', '')
+   htmlTable( caption  = "<b> Association with household pollutants  </b>",useViewer=T,ctable = TRUE, align = 'ccccc',
+              n.cgroup = c(2,1,2,1,2,1 ), cgroup = c( 'Low Birth Weight','','Preterm','','Pregnancy Loss', '')
                ,tfoot="<sup>&Dagger;</sup>"
               )%>% htmlTable::addHtmlTableStyle(col.rgroup = c("#FFF", "#EEF")) 
 
@@ -602,51 +717,361 @@ mergeDesc(
 
 ```
 
-# Multivariate Analysis
-
-https://rpubs.com/CaperKen/198209
-https://strengejacke.wordpress.com/2014/02/20/no-need-for-spss-beautiful-output-in-r-rstats/
-
-```{r warning=FALSE}
-#naniar::gg_miss_var(dataset )+ labs(title = "Frequency of Missingness")
-
-```
+## Table 9: Correlates of birth outcomes
+```{r fig.align='center',warning=FALSE}
 
 
-```{r warning=FALSE}
-variables <- list(
-  "ferritin"="ferritin",
-  "sickle_cell"="sickle_cell",
-  "lab_hgb"="lab_hgb",
-  "lab_hct"="lab_hct",                        
-  "lab_wbc_count"="lab_wbc_count",                 
-  "lab_mcv"="lab_mcv",                       
-  "inpouch"="inpouch",                        
-  "vaginosis"="vaginosis",                      
-  "lab_rdt"="lab_rdt",                        
-  "chlamydia"="chlamydia",                     
-  "gonorrhea"="gonorrhea"
-)
+# Getting descriptive statistics 
+na.rm.var=F;stats=T
+mergeDesc(
+          "Marital status" = getMultipleTable1Stats("cp_marital_status","low_birth_weight","preterm","preg_loss",desc_both,statistics=stats,na.rm=na.rm.var),
+          "BMI" = getMultipleTable1Stats("cp_bmi_cat","low_birth_weight","preterm","preg_loss",desc_both,statistics=stats,na.rm=na.rm.var), 
+          "Booking trimester" = getMultipleTable1Stats("trimester_1st_anc","preterm","low_birth_weight","preg_loss",desc_both,statistics=stats,na.rm=na.rm.var),  
+          "Education level" =getMultipleTable1Stats("education_level","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var), 
+          "Occupation" = getMultipleTable1Stats("se_occupation_cat","low_birth_weight","preterm","preg_loss",desc_both,statistics=stats,na.rm=na.rm.var),
+          "Spouse Occupation (%)" = getMultipleTable1Stats("se_spouse_occupation_cat","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "IPT" = getMultipleTable1Stats("is_ipt_dose_given","low_birth_weight","preterm","preg_loss",desc_both,statistics=stats,na.rm=na.rm.var),
+          "Iron Supplementation" =getMultipleTable1Stats("is_taken_iron_supps","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Deworming" =getMultipleTable1Stats("is_deworming_done","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var),
+          "Contraceptive use" =getMultipleTable1Stats("is_used_contraceptives","low_birth_weight","preterm","preg_loss",desc_median,statistics=stats,na.rm=na.rm.var)
+          ) %>%
+   htmlTable( caption  = "<b> Correlates of birth outcomes  </b>",useViewer=T,ctable = TRUE, align = 'ccccc',
+               n.cgroup = c(2,1,2,1,2,1 ), cgroup = c( 'Low Birth Weight','','Preterm','','Pregnancy Loss', '')
+               ,tfoot="<sup>&Dagger;</sup>"
+              )%>% htmlTable::addHtmlTableStyle(col.rgroup = c("#FFF", "#EEF")) 
 
-y <- "low_birth_weight"
-x <- names(variables)
-
-# fully parameterized!
-f <- as.formula(paste(y, paste(x, collapse = " + "), sep = " ~ "))
-print(f)
-
-no.na.data <- na.omit(dataset[c(y, x)])
-
-# full model
-full.logit = glm(f,data=no.na.data,family=binomial)
-summary(full.logit)
-
-
-
-# step AIC
-MASS::stepAIC(full.logit,direction="both")
 
 
 ```
 
 \newpage
+
+
+# Missing Data Analysis
+
+```{r fig.align='center', fig.width=5, warning=FALSE}
+#
+y <- "low_birth_weight"
+x <- c("age","cp_marital_status","se_occupation_cat","education_level","cp_weight","cp_height","cp_bmi","cp_sbp",
+    "cp_dbp","cp_gbd","gravida","cp_anc_attendance","cp_anc_1st_anc",
+    "trimester_1st_anc","ancp_hb_results","anc_hb_low","gesthb",
+    "ancp_bloodgroup_results","ancp_rhesus_results","ancp_vdrl_rpr_results",
+    "ancp_hiv_results","hiv_haart_regimen","ancp_urinalysis_cat",
+    "any_prev_preterm","any_prev_lbw","any_prev_miscarriage",
+    "any_prev_still_births","any_prev_deaths","any_prev_abortions",
+    "any_prev_preg_loss","ferritin","ferritin_cat","lab_hgb",
+    "lab_hb_low","lab_hct","lab_wbc_count","lab_mcv","sickle_cell",
+    "inpouch","vaginosis","lab_rdt","chlamydia","gonorrhea",
+    "is_ipt_dose_given","is_taken_iron_supps","is_deworming_done","is_used_contraceptives",
+    "delivery_mode","delivery_place",#"delivery_conducted_by",
+    #"birth_weight_grams","birth_weight_cat",
+   # "pregnancy_duration_weeks","preg_duration_cat","still_birth_death",
+    "age_cat","cp_bmi_cat","gravida_cat","ferritin_less15","anemic",
+    "vaginosis_cat","ancp_uti",
+   "q1_thatched_kitchen_roof","porous_q2_kitchen_wall_material","q3_kitchen_adobe_floor","q5_kitchen_permanent_entryways",
+   "q7_no_permanent_windows_open","pollutant_q8_fuel_cook","q10_months_cook_house","q12_be_ageyrs_start_cook","q14_be_years_spent_cooking",
+   "q24_anyone_smoke_house"#,"q20_ageyrs_startsmoking","q22_no_cig_smoke",
+   
+  
+   )
+
+kable( dataset%>%select(c(x,y)) %>%naniar::miss_var_summary()%>%top_n(20,n_miss))
+
+naniar::gg_miss_var(dataset%>%select(c(x,y))  )+ labs(title = "Frequency of Missingness")
+naniar::gg_miss_upset(dataset%>%select(x), nsets = 10,nintersects = NA)
+naniar::gg_miss_fct(x = dataset%>%select(c(x,y)), fct = low_birth_weight)
+
+
+
+no.na.data <- na.omit(dataset[c(y, x)])
+# f <- as.formula(paste(y, paste(x, collapse = " + "), sep = " ~ "))
+# lbw.logit <- glm(f, family="binomial", data=no.na.data) %>% stepAIC(trace = FALSE)
+# summary(lbw.logit)
+
+```
+
+
+# Multivariate Complete Case Analysis
+
+```{r fig.align='center',warning=TRUE,  cache=F}
+varList= list(
+"No"=c('preg_loss','low_birth_weight','polygamous','anc_hb_low','lab_hb_low', 'sickle_cell', "preterm", "still_birth_death", "ferritin_less15",
+        "any_prev_preg_loss","any_prev_abortions","any_prev_deaths","any_prev_still_births","any_prev_miscarriage","any_prev_alive_births","any_prev_lbw",
+        "any_prev_preterm", "ancp_uti", "anemic", "is_ipt_dose_given","is_taken_iron_supps","is_deworming_done","is_used_contraceptives","pollutant_q8_fuel_cook",
+        "porous_q2_kitchen_wall_material","q3_kitchen_adobe_floor","q1_thatched_kitchen_roof"
+        ),
+"Negative"=c('ancp_rhesus_results','ancp_vdrl_rpr_results','ancp_hiv_results','inpouch','lab_rdt','chlamydia','gonorrhea',"vaginosis_cat"),
+"Unemployed"=c("se_occupation_cat")
+)
+
+dataset= relevelBy(varList,dataset) 
+```
+
+## Low Birth Weight (LBW) Logistic Regression Model 
+
+```{r fig.align='center',warning=TRUE,  cache=F, results="asis"}
+## params
+outcome="low birth weight"
+topn=-7
+variable_name=c("Intercept",'Age',"BMI", "Gestation", "Positive syphilis screening ", "Positive Iron deficiency ( Ferritin <= 15 )", "Employed","Self employed", "Pregnancy duration (>=38 weeks)", "Low hemoglobin", "Education level ( >= Secondary)", "Gravidity", "Previous deaths", "Pollutant fuel", "Taking iron supplement")
+categorical=c(F,F,F,F,T,T,T,T,T,T,T,F,F,T,T)
+
+# model
+lbw.logit <- glm(low_birth_weight~ age +cp_bmi+cp_gbd+ancp_vdrl_rpr_results+ferritin_less15+se_occupation_cat+
+                   preg_duration_cat+lab_hb_low+education_level_cat+
+                   gravida+num_prev_deaths+pollutant_q8_fuel_cook+is_taken_iron_supps, family="binomial", data=dataset)
+#summary(lbw.logit)
+
+stargazer2(lbw.logit,
+                    title="Title: Logistic Results",
+                    dep.var.caption  = "Odds Ratio (CI)", df = FALSE, header = FALSE, digits=2, 
+                    align=TRUE,intercept.bottom =F,
+                    type = "html",single.row = T,
+                    #style = "ajs", # "ajs"
+                    ci = T,odd.ratio = T,
+                    notes="Confidence Interval in parenthesis",
+                    covariate.labels=variable_name
+                    )
+
+
+
+```
+
+
+
+```{r fig.align='center',warning=TRUE,  cache=F}
+
+t2=cbind(OR = exp(coef(lbw.logit)), exp(confint(lbw.logit)), `P-value` = coef(lbw.logit)[2])
+#kable(t2)
+
+model.df = broom::tidy(lbw.logit, conf.int = TRUE)%>%
+              mutate(
+                estimate_or=round(exp(estimate),2),
+                conf.low_or=round(exp(conf.low),2),
+                conf.high_or=round(exp(conf.high),2),
+                variable_name=variable_name,
+                categorical=categorical
+                )
+
+
+
+generateInterpretation(outcome,topn,model.df)
+generateLogitPlot(outcome,topn,model.df)
+
+```
+
+
+## Pregnancy Loss (PL) Logistic Regression Model 
+
+```{r fig.align='center',warning=F,  cache=F, results="asis"}
+## params
+outcome="pregnancy loss"
+topn=-7
+variable_name=c("Intercept",'Age',"BMI", "Gestation", "Urinary tract infection", "Positive Iron deficiency ( Ferritin <= 15 )", "Employed","Self employed", "Pregnancy duration (>=38 weeks)", "Low hemoglobin", "Education level ( >= Secondary)", "Gravidity", "Vaginosis", "Pollutant fuel", "Taking iron supplement")
+categorical=c(F,F,F,F,T,T,T,T,T,T,T,F,F,T,T)
+
+# model
+
+pl.logit <- glm(preg_loss~ age +cp_bmi+cp_gbd+ancp_uti+ferritin_less15+se_occupation_cat+
+                   preg_duration_cat+lab_hb_low+education_level_cat+
+                   gravida+vaginosis_cat+pollutant_q8_fuel_cook+is_taken_iron_supps, family="binomial", data=dataset)
+#summary(pl.logit)
+
+stargazer2(pl.logit,
+                    title="Title: Logistic Results",
+                    dep.var.caption  = "Odds Ratio (CI)", df = FALSE, header = FALSE, digits=2,
+                    align=TRUE,intercept.bottom =F,
+                    type = "html",single.row = T,
+                    #style = "ajs", # "ajs"
+                    ci = T,odd.ratio = T,
+                    notes="Confidence Interval in parenthesis",
+                    covariate.labels=variable_name
+                    )
+
+
+```
+
+
+```{r fig.align='center',warning=TRUE,  cache=F}
+
+t2=cbind(OR = exp(coef(pl.logit)), exp(confint(pl.logit)), `P-value` = coef(pl.logit)[2])
+#kable(t2)
+
+model.df = broom::tidy(pl.logit, conf.int = TRUE)%>%
+              mutate(
+                estimate_or=round(exp(estimate),2),
+                conf.low_or=round(exp(conf.low),2),
+                conf.high_or=round(exp(conf.high),2),
+                variable_name=variable_name,
+                categorical=categorical
+                )
+
+
+
+generateInterpretation(outcome,topn,model.df)
+generateLogitPlot(outcome,topn,model.df)
+
+```
+
+## LBW and PL Summary
+
+```{r fig.align='center',warning=F,  cache=F, results="asis"}
+
+variable_name=c("Intercept",'Age',"BMI", "Gestation", "Urinary tract infection", "Positive syphilis screening","Positive Iron deficiency ( Ferritin <= 15 )", "Employed","Self employed", "Pregnancy duration (>=38 weeks)", "Low hemoglobin", "Education level ( >= Secondary)", "Gravidity", "Vaginosis", "Previous deaths", "Pollutant fuel", "Taking iron supplement")
+
+
+stargazer2(list("pregnancy loss"=pl.logit,"low birth weight"=lbw.logit),
+                    title="Title: Logistic Results",
+                    dep.var.caption  = "Odds Ratio (CI)", df = FALSE, header = FALSE, digits=2,
+                    align=TRUE,intercept.bottom =F,
+                    type = "html",single.row = T,
+                    #style = "ajs", # "ajs"
+                    ci = T,odd.ratio = T,
+                    notes="Confidence Interval in parenthesis",
+                    covariate.labels=variable_name
+                    )
+
+
+```
+
+\newpage
+
+# Appendix
+
+## Explaratory Data Analysis | EDA
+
+### Bivariate Analysis
+
+To understand the relationship of each continuous variable with the y variable:
+
+1. Plot box plot for each of the variables to do a visual comparison between the groups
+2. Plot the explanatory variable distribution for both the variables to understand the variability uniquely explained (The non-intersecting part of the blue and the red is the variation explained by the variable)
+
+
+```{r fig.align='center', cache=T, fig.width=5, warning=FALSE}
+y <- c("low_birth_weight","outcome", "preg_loss", "preterm")
+x <- c("age","cp_marital_status","se_occupation_cat","education_level","cp_weight","cp_height","cp_bmi","cp_sbp",
+    "cp_dbp","cp_gbd","gravida","cp_anc_attendance","cp_anc_1st_anc",
+    "trimester_1st_anc","ancp_hb_results","anc_hb_low","gesthb",
+    "ancp_bloodgroup_results","ancp_rhesus_results","ancp_vdrl_rpr_results",
+    "ancp_hiv_results","hiv_haart_regimen","ancp_urinalysis_cat",
+    "any_prev_preterm","any_prev_lbw","any_prev_miscarriage",
+    "any_prev_still_births","any_prev_deaths","any_prev_abortions",
+    "any_prev_preg_loss","ferritin","ferritin_cat","lab_hgb",
+    "lab_hb_low","lab_hct","lab_wbc_count","lab_mcv","sickle_cell",
+    "inpouch","vaginosis","lab_rdt","chlamydia","gonorrhea",
+    "is_ipt_dose_given","is_taken_iron_supps","is_deworming_done","is_used_contraceptives",
+    "delivery_mode","delivery_place","delivery_conducted_by",
+     "birth_weight_grams","birth_weight_cat",
+    "pregnancy_duration_weeks","preg_duration_cat","still_birth_death",
+    "age_cat","cp_bmi_cat","gravida_cat","ferritin_less15","anemic",
+    "vaginosis_cat","ancp_uti",
+   "q1_thatched_kitchen_roof","porous_q2_kitchen_wall_material","q3_kitchen_adobe_floor","q5_kitchen_permanent_entryways",
+   "q7_no_permanent_windows_open","pollutant_q8_fuel_cook","q10_months_cook_house","q12_be_ageyrs_start_cook","q14_be_years_spent_cooking",
+   "q24_anyone_smoke_house","q20_ageyrs_startsmoking","q22_no_cig_smoke"
+   
+   )
+raw_df=dataset%>%select(c(y,x))
+cont_univ_df <- raw_df %>% select_if(is.numeric) %>% dplyr::mutate(row_no =1:n() )
+
+for (value in  colnames(cont_univ_df[-ncol(cont_univ_df)]))  { 
+  print(value)
+  p1 <- ggplot2.histogram(raw_df%>%drop_na(low_birth_weight), xName=value, backgroundColor="white",  bins=10,
+                         #brewerPalette="Paired",
+                         groupName="low_birth_weight", legendPosition="top", xScale="log2",
+                         
+                         alpha=0.5, addDensity=TRUE,  removePanelGrid=TRUE ,removePanelBorder=TRUE,
+                         addMeanLine=TRUE, meanLineSize=1)+ theme_minimal()+ theme(legend.position="top")
+   p2<- ggboxplot(raw_df%>%drop_na(low_birth_weight), x = "low_birth_weight", y = value, color = "low_birth_weight", palette = "jco", add = "jitter")+
+          stat_compare_means()+ guides(fill=FALSE, color=FALSE)	+ theme_minimal()
+   
+  
+   p3 <- ggplot2.histogram(raw_df%>%drop_na(preg_loss), xName=value, backgroundColor="white",  bins=10,
+                         #brewerPalette="Paired",
+                         groupName="preg_loss", legendPosition="top", xScale="log2",
+                         
+                         alpha=0.5, addDensity=TRUE,  removePanelGrid=TRUE ,removePanelBorder=TRUE,
+                         addMeanLine=TRUE, meanLineSize=1)+ theme_minimal()+ theme(legend.position="top")
+   p4<- ggboxplot(raw_df%>%drop_na(preg_loss), x = "preg_loss", y = value, color = "preg_loss", palette = "jco", add = "jitter")+
+    stat_compare_means()+ guides(fill=FALSE, color=FALSE)	+ theme_minimal()
+   
+   grid.arrange( p1,p2, p3,p4,nrow=2) 
+  # print(p2 )
+}
+
+```
+
+
+### Univariate Analysis
+
+For each continuous column, visually check the following: 
+
+1. Variation in the column
+2. Its distribution
+3. Any outliers
+4. q-q plot with normal distribution
+
+
+```{r fig.align='center', cache=T, fig.width=5, warning=FALSE}
+
+
+for(column in colnames(cont_univ_df[-ncol(cont_univ_df)])){
+  
+  print(column)
+  p1 <- ggplot(cont_univ_df, aes_string(x='row_no', y= column)) +
+    geom_point(show.legend = FALSE) +
+    labs(x = 'Univariate plot', y=column) +
+    ggtitle(column) +
+    theme_minimal()
+
+  # Cumulative plot
+  legendcols <- c("Normal distribution"="darkred","Density"="darkBlue","Histogram"="lightBlue")
+  p2 <- ggplot(cont_univ_df,aes_string(x = column)) +
+    geom_histogram(aes(y=..density.., fill ="Histogram"), bins = 50) +
+    stat_function(fun = dnorm, aes(color="Normal distribution"),  size = 1,
+                args = list(mean = mean(cont_univ_df[[column]]),
+                            sd = sd(cont_univ_df[[column]]))) +
+  geom_density(aes(y=..density.., color="Density"),  size = 1)+
+  scale_colour_manual(name="Distribution",values=legendcols) +
+  scale_fill_manual(name="Bar",values=legendcols) +
+  theme_minimal() + theme(legend.position="none")
+
+  p3 <- ggplot(cont_univ_df %>% mutate(constant = column),
+    aes_string(x="constant", y= column, group = 123)) +
+    geom_boxplot() +
+    labs(y=column) +
+    theme_minimal()
+
+  p4 <- ggplot(cont_univ_df,aes_string(sample = column)) +
+    stat_qq() + stat_qq_line() +
+    theme_minimal()
+  grid.arrange(p1, p2, p3, p4, nrow=2)
+
+}
+```
+
+
+For categorical variables,visually check the frequencies and percentages.
+
+```{r fig.align='center',cache=T,  fig.width=5, warning=FALSE}
+
+univ_cat_df <- raw_df %>% select_if(function(col) {is.factor(col) | is.character(col)})
+plist= list()
+for(column in colnames(univ_cat_df)){
+gg = ggplot(univ_cat_df,aes_string(column)) +
+    geom_bar() + coord_flip() +
+    ggtitle(column) +
+    theme_minimal()
+plist[[column]]=gg
+if(length(plist)==4){
+  print(names(plist))
+  do.call("grid.arrange", c(plist,  nrow=2))
+  plist= list()
+}
+}
+
+
+```
+
+
+
